@@ -1,0 +1,238 @@
+﻿@model IEnumerable<CompanyDashboard.Domain.Department>
+
+<div class="container">
+    <div>
+        <div class="container-fluid">
+            <div class="chart-container">
+                <canvas id="myDonutChart" width="400" height="400"></canvas>
+            </div>
+        </div>
+        <div class="container m-5">
+            <div class="d-flex justify-content-end">
+                <button id="exportExcel" class="btn btn-primary mr-2">Export to Excel</button>
+                <button id="exportPdf" class="btn btn-primary">Export to PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div>
+            <table class="table table-bordered table-hover" id="dataGrid">
+                <thead class="thead-dark">
+                    <tr>
+                        <th scope="col" style="width: 5%">Toggle</th>
+                        <th scope="col">Department Name</th>
+                        <th scope="col">Number of Employees</th>
+                        <th scope="col">Location Id</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model)
+                    {
+                        <tr class="data-row" data-row-id="@item.Department_Id">
+                            <td><button class="toggle-employee-data btn btn-primary">+</button></td>
+                            <td>@item.Department_Name</td>
+                            <td>@item.NumOfEmployees</td>
+                            <td>@item.Location_Id</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div id="subGridContainerId" class="container">
+            <h5>Company Dashboard</h5>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function () {
+        $('#dataGrid').DataTable({
+            lengthMenu: [[2, 4, 6, 10, -1], [2, 4, 6, 10, "All"]],
+            columnDefs: [{
+                targets: [0],
+                orderable: false,
+            }],
+            order: [], 
+        });
+
+        $(document).on('click', '.toggle-employee-data', function () {
+            var $button = $(this);
+            var departmentId = $button.closest('tr').data('row-id');
+            var $employeeDataContainer = $button.closest('tr').next('.employee-data-container');
+
+            if ($employeeDataContainer.length === 0) {
+                fetchDataAndUpdateSubGrid(departmentId, $button.closest('tr'));
+            } else {
+                $employeeDataContainer.toggle();
+            }
+
+            // Toggle button text
+            $button.text($button.text() === '+' ? '-' : '+');
+        });
+
+        $('#exportExcel').click(function () {
+            fetch('http://localhost:7777/api/Dashboard/departments')
+                .then(response => response.json())
+                .then(data => {
+                    var wb = XLSX.utils.book_new();
+                    var ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, "Departments");
+                    XLSX.writeFile(wb, 'Departments.xlsx');
+                }).catch(error => console.error('Error exporting to Excel:', error));
+        });
+
+        $('#exportPdf').click(function () {
+            fetch('http://localhost:7777/api/Dashboard/departments')
+                .then(response => response.json())
+                .then(data => {
+                    const { jsPDF } = window.jspdf || {};
+                    if (!jsPDF) {
+                        alert("Error: jsPDF library is not available.");
+                        return;
+                    }
+
+                    var doc = new jsPDF();
+                    var rows = data.map(dept => [dept.department_Name, dept.numOfEmployees, dept.location_Id]);
+
+                    if (typeof doc.autoTable === 'function') {
+                        doc.autoTable({
+                            head: [['Department Name', 'Number of Employees', 'Location Id']],
+                            body: rows
+                        });
+                        doc.save('Departments.pdf');
+                    }
+                    else {
+                        alert("Error: autoTable plugin is not available.");
+                    }
+                }).catch(error => console.error('Error exporting to PDF:', error));
+        });
+    });
+
+    function createDonutChart() {
+        var ctx = document.getElementById('myDonutChart').getContext('2d');
+
+        var departmentName = [];
+        var percentage = [];
+        @if (Model.Count() > 0)
+        {
+            foreach (var item in Model)
+            {
+                @:departmentName.push('@item.Department_Name');
+                @:percentage.push('@item.Percentage');
+            }
+        }
+
+            var myDonutChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: departmentName,
+                    datasets: [{
+                        label: 'API Data Dataset',
+                        data: percentage,
+                        backgroundColor: [
+                            'rgba(255, 99, 132, 0.2)',
+                            'rgba(54, 162, 235, 0.2)',
+                            'rgba(255, 206, 86, 0.2)',
+                            'rgba(75, 192, 192, 0.2)',
+                            'rgba(153, 102, 255, 0.2)',
+                            'rgba(255, 159, 64, 0.2)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 99, 132, 1)',
+                            'rgba(54, 162, 235, 1)',
+                            'rgba(255, 206, 86, 1)',
+                            'rgba(75, 192, 192, 1)',
+                            'rgba(153, 102, 255, 1)',
+                            'rgba(255, 159, 64, 1)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '0%',
+                    plugins: {
+                        datalabels: {
+                            color: '#0000FF',
+                            formatter: (value, context) => {
+                                const label = context.chart.data.labels[context.dataIndex];
+                                return label + ': ' + value + '%';
+                            },
+                            anchor: 'end',
+                            clamp: true,
+                            clip: true,
+                            rotation: 0,
+                        },
+                        legend: {
+                            display: true,
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function (tooltipItem) {
+                                    return tooltipItem.label + ': ' + tooltipItem.raw + '%';
+                                }
+                            }
+                        }
+                    }
+                },
+                plugins: [ChartDataLabels]
+            });
+    }
+    createDonutChart();
+
+    function fetchDataAndUpdateSubGrid(departmentId, $row) {
+        $.ajax({
+            url: `http://localhost:7777/api/Dashboard/employees/${departmentId}`,
+            method: 'GET',
+            success: function (data) {
+                console.log('Data fetched successfully:', data);
+                updateSubGrid(data, $row);
+            },
+            error: function (error) {
+                console.error('Error fetching data:', error);
+            }
+        });
+    }
+
+    function updateSubGrid(data, $row) {
+        var rowHtml = '<tr class="employee-data-container" style="display: none;">' +
+            '<td colspan="4">' +
+            '<table class="table">' +
+            '<thead>' +
+            '<tr>' +
+            '<th>First Name</th>' +
+            '<th>Last Name</th>' +
+            '<th>Email</th>' +
+            '<th>Phone Number</th>' +
+            '<th>Hire Date</th>' +
+            '<th>Job Id</th>' +
+            '<th>Salary</th>' +
+            '<th>Manager Id</th>' +
+            '<th>Department Id</th>' +
+            '</tr>' +
+            '</thead>' +
+            '<tbody>';
+
+        for (var i = 0; i < data.length; i++) {
+            rowHtml += '<tr>' +
+                '<td>' + data[i].first_Name + '</td>' +
+                '<td>' + data[i].last_Name + '</td>' +
+                '<td>' + data[i].email + '</td>' +
+                '<td>' + data[i].phone_Number + '</td>' +
+                '<td>' + data[i].hire_Date + '</td>' +
+                '<td>' + data[i].job_Id + '</td>' +
+                '<td>' + data[i].salary + '</td>' +
+                '<td>' + data[i].manager_Id + '</td>' +
+                '<td>' + data[i].department_Id + '</td>' +
+                '</tr>';
+        }
+
+        rowHtml += '</tbody></table></td></tr>';
+        $row.after(rowHtml);
+        $row.next('.employee-data-container').toggle();
+    }
+</script>
